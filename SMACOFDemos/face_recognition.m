@@ -1,10 +1,10 @@
 % Load the gallery. Each surface in the gallery is sampled with
 % 1000 points.
-directory = '../FaceData';
+directory = '../4KMeshWFeaturePoints/4KMesh';
 files = dir(fullfile(directory, '*.mat'));
 for i = 1:length(files)
     data = load(fullfile(directory, files(i).name));
-    data = remesh(data.human_face, set_options('vertices', 1000));
+    data = remesh(data.human_face_4k, set_options('vertices', 1000));
     data = init_surface(data);
     gallery(i) = data;
 end
@@ -17,6 +17,7 @@ end
 % set. Need to figure out how to determine the threshold. Also,
 % move this code to a function.
 gmdsSampleSize = 50;
+classDistortionThreshold = 1;
 
 % Load the probes. Each probe is sampled with 1000 points.
 directory = '../4KMeshWFeaturePoints/4KMesh';
