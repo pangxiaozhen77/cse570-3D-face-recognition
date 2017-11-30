@@ -95,7 +95,7 @@ fMeasure = zeros(1, numUniqueClasses);
 for i = 1:numUniqueClasses
     precision(i) = confusionMatrix(i,i) / sum(confusionMatrix(:,i));
     recall(i) = confusionMatrix(i,i) / sum(confusionMatrix(i,:));
-    fMeasure(i) = (precision(i) + recall(i)) / 2;
+    fMeasure(i) = 2 * (precision(i) * recall(i)) / (precision(i) + recall(i));
 end
 
 % Output distortions
