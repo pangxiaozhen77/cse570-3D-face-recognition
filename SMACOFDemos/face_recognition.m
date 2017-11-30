@@ -1,68 +1,101 @@
-% Load the gallery. Each surface in the gallery is reduced
-% to 1450 points.
+% Load the 4KMesh data set.
+directory = '../4KMeshWFeaturePoints/4KMesh';
+files = dir(fullfile(directory, '*.mat'));
+classRegex = 'human_face\d+';
+dataSet = [];
+actualClasses = {};
+for i = 1:length(files)
+    % Skip over human_face4_2_4k.mat because using its
+    % remeshed surface causes an error in the gmds function.
+    if strcmp(files(i).name, 'human_face4_2_4k.mat')
+        continue;
+    end
+    data = load(fullfile(directory, files(i).name));
+    % Remesh is done using 1450 vertices to coincide with the
+    % same number of vertices used to remesh the other surfaces
+    % from the FaceData set.
+    data = remesh(data.human_face_4k, set_options('vertices', 1450));
+    data = init_surface(data);
+    dataSet = [dataSet data];
+    class = regexp(files(i).name, classRegex, 'match', 'once');
+    actualClasses{end + 1} = class;
+end
+
+% Load the FaceData set.
 directory = '../FaceData';
 files = dir(fullfile(directory, '*.mat'));
 for i = 1:length(files)
     data = load(fullfile(directory, files(i).name));
+    % Remesh is done using 1450 vertices because it was found
+    % that this number did not produce a single surface from
+    % the FaceData set that has an empty cell for the VTRI field
+    % With an empty cell in the VTRI field, an error will occur
+    % when calling the gmds function.
     data = remesh(data.human_face, set_options('vertices', 1450));
     data = init_surface(data);
-    gallery(i) = data;
+    dataSet = [dataSet data];
+    class = regexp(files(i).name, classRegex, 'match', 'once');
+    actualClasses{end + 1} = class;
 end
 
-% Load the probes. Each probe is reduced to 1000 points.
-directory = '../4KMeshWFeaturePoints/4KMesh';
-files = dir(fullfile(directory, '*.mat'));
-classRegex = 'human_face\d+';
-for i = 1:length(files)
-    data = load(fullfile(directory, files(i).name));
-    data = remesh(data.human_face_4k, set_options('vertices', 1000));
-    data = init_surface(data);
-    probes(i) = data;
-    knownClasses{i} = regexp(files(i).name, classRegex, 'match', 'once');
-end
-
-% Recognition is done by computing the distortion between
-% the probe and each surfaces in the gallery and finding
-% the surface with the lowest distortion. The probe is
-% identified as the class of the found surface.
+% Recognition is done by using GMDS to compute the distortion
+% between the probe and each surfaces in the gallery and finding
+% the surface with the lowest root mean square distortion. The
+% probe is identified as the class of the found surface.
+%
+% Note: It is advised to comment out this block of code below to
+% prevent the slow computation of the distance matrix. The distance
+% matrix, distance_matrix.mat, can be loaded instead of computed.
 gmdsSampleSize = 50;
-for i = 1:length(probes)
-    for j = 1:length(gallery)
-        [tx, ux, ty, uy, f, rmsdist, maxdist, local_stress] = gmds (probes(i), gallery(j), gmdsSampleSize);
+maxDistortion = 1000000;
+for i = 1:length(dataSet)
+    for j = 1:length(dataSet)
+        % If i == j, the same surface is compared which is guaranteed
+        % to have the lowest distortion. The max distortion is stored
+        % in the distance matrix when i == j to avoid classifying
+        % a surface as itself at a later step.
+        if i == j
+            distances(i,j) = maxDistortion;
+            continue;
+        end
+        [tx, ux, ty, uy, f, rmsdist, maxdist, local_stress] = gmds (dataSet(i), dataSet(j), gmdsSampleSize);
         distances(i,j) = rmsdist;
     end
 end
 
 % Find the lowest distortion and the index of the lowest
-% distortion for each probe. The index is used to find the
-% class of the probe.
-for i = 1:length(probes)
+% distortion for each probe in the distance matrix. The
+% index is used to find the class of the probe.
+for i = 1:size(distances, 1)
     lowestDistortion = distances(i,1);
     lowestDistortionIndex = 1;
-    for j = 1:length(gallery)
+    for j = 1:size(distances, 2)
         if distances(i,j) < lowestDistortion
             lowestDistortion = distances(i,j);
             lowestDistortionIndex = j;
         end
     end
-    predictedClasses{i} = knownClasses{lowestDistortionIndex};
+    predictedClasses{i} = actualClasses{lowestDistortionIndex};
 end
 
 % Build the confusion matrix.
-numUniqueClasses = unique(knownClasses);
-confusionMatrix = zeros(length(numUniqueClasses));
-classRegex = '\d+';
-for i = 1:length(predictedClasses)
-    truthClass = str2num(regexp(knownClasses{i}, classRegex, 'match', 'once'));
-    predictedClass = str2num(regexp(predictedClasses{i}, classRegex, 'match', 'once'));
-    confusionMatrix(truthClass, predictedClass) = confusionMatrix(truthClass, predictedClass) + 1;
+uniqueClasses = unique(actualClasses, 'stable');
+numUniqueClasses = length(uniqueClasses);
+confusionMatrix = zeros(numUniqueClasses);
+for i = 1:length(dataSet)
+    truthClassIndex = find(ismember(uniqueClasses, actualClasses{i}));
+    predictedClassIndex = find(ismember(uniqueClasses, predictedClasses{i}));
+    confusionMatrix(truthClassIndex, predictedClassIndex) = confusionMatrix(truthClassIndex, predictedClassIndex) + 1;
 end
 
-% Compute recall rate, precision rate, and F measure.
-recall = 0;
-precision = 0;
-fMeasure = 0;
-for i = 1:length(confusionMatrix(:,1))
+% Compute the precision rate, recall rate, and F measure.
+precision = zeros(1, numUniqueClasses);
+recall = zeros(1, numUniqueClasses);
+fMeasure = zeros(1, numUniqueClasses);
+for i = 1:numUniqueClasses
+    precision(i) = confusionMatrix(i,i) / sum(confusionMatrix(:,i));
+    recall(i) = confusionMatrix(i,i) / sum(confusionMatrix(i,:));
+    fMeasure(i) = (precision(i) + recall(i)) / 2;
 end
 
 % Output distortions
